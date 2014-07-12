@@ -81,6 +81,13 @@ object Ephemeral extends EphemeralStreamConsumers {
     }
     res
   }
+
+  def leaky(xs: EphemeralStream[Int]): Option[Double] = {
+    xs match {
+      case y ##:: ys => Some(y + sum(ys) / ys.length)
+      case _ => None
+    }
+  }
   
   def test(desc: String)(f: => Any): Unit = {
     print(desc)
@@ -103,13 +110,11 @@ object Ephemeral extends EphemeralStreamConsumers {
       case x ##:: xs => processData(x ##:: xs)
       case _ => println("no match")
     }
-    
 
     getData match {
 //      case s @ (_ ##:: _) => processData(s)
       case _ => println("no match")
     }
-
     
     val foo: Option[(Int, EphemeralStream[Int])] = EphemeralStream.##::.unapply(getData)
     if (foo.isEmpty) println("No data to process")
@@ -119,21 +124,23 @@ object Ephemeral extends EphemeralStreamConsumers {
 //    test("(ones take 1000000).length"){(ones take 1000000).length}     
     
     def plus(x: => Int)(y: => Int) = x+y
-    test("(ones take 1000000).foldLeft(0)(_ + _)"){(ones take 1000000).foldLeft(0)(plus)}     
+    test("(ones take 1000000).foldLeft(0)(plus)"){(ones take 1000000).foldLeft(0)(plus)}     
 //    test("(ones take 1000000).reduceLeft(_ + _)"){(ones take 1000000).reduceLeft(_ + _)}     
     test("{var sum = 0; (ones take 1000000).foreach(x => sum += x); sum}"){
       var sum = 0; (ones take 1000000).foreach(x => sum += x); sum
     }     
-    test("(ones take 1000000).sum"){(ones take 1000000).sum}     // OOM
-    test("(0 /: (ones take 1000000))(_ + _)"){(0 /: (ones take 1000000))(_ + _)}     // OOM
-//    test("new Summator(){}.sum(ones take 1000000)"){new Summator(){}.sum(ones take 1000000)}     // OOM
-//    test("new Summator(){}.sumWrapped(Array(ones take 1000000))"){new Summator(){}.sumWrapped(Array(ones take 1000000))}     // Works
-    test("sum(ones take 1000000)"){sum(ones take 1000000)}  // OOM
-    test("sumPatMat(ones take 1000000)"){sumPatMat(ones take 1000000)}  // OOM
+    test("(ones take 1000000).sum"){(ones take 1000000).sum}
+    test("(0 /: (ones take 1000000))(_ + _)"){(0 /: (ones take 1000000))(_ + _)}
+    test("ones take 1000000 forall (_ == 1)"){ones take 1000000 forall (_ == 1)}
+    test("ones take 1000000 exists (_ != 1)"){ones take 1000000 exists (_ != 1)}
+    test("ones take 1000000 find (_ != 1)"){ones take 1000000 find (_ != 1)}
+    test("sum(ones take 1000000)"){sum(ones take 1000000)}
+    test("sumPatMat(ones take 1000000)"){sumPatMat(ones take 1000000)}
     test("sumByName(ones take 1000000)"){sumByName(ones take 1000000)}  
     test("sumTailRec(ones take 1000000)"){sumTailRec(ones take 1000000)}  
     test("sumImperative(ones take 1000000)"){sumImperative(ones take 1000000)}  
-    test("traitSumTailRec(ones take 1000000)"){traitSumTailRec(ones take 1000000)}  // OOM
+    test("leaky(ones take 1000000)"){leaky(ones take 1000000)}  
+    test("traitSumTailRec(ones take 1000000)"){traitSumTailRec(ones take 1000000)}
     test("traitSumImperative(ones take 1000000)"){traitSumImperative(ones take 1000000)}
     test("traitSumByName(ones take 1000000)"){traitSumByName(ones take 1000000)}
   }
