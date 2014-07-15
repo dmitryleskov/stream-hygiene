@@ -1,5 +1,4 @@
-**TL;DR:** Use [scalaz.EphemeralStream](http://scalaz-seven-doc.cleverapps.io/core/target/scala-2.10/api/index.html#scalaz.EphemeralStream),
-or roll out your own non-memoizing alternative to standard Scala streams.
+[The source code for this post is available on GitHub.](https://github.com/dmitryleskov/stream-hygiene/tree/master/src/streamhygiene/part1)
 
 [Lazy evaluation](https://en.wikipedia.org/wiki/Lazy_evaluation),
 also known as call-by-need, is commonly found in functional languages.
@@ -45,48 +44,86 @@ by compiliing and decompiling test programs.
 If you know of any other techniques or edge cases, please post 
 in the comments.
 
-## Avoiding Stream memoization ##
+## Rules for Avoiding Stream Memoization ##
 
 1.  **Define streams using `def` and never store them in `val`s.**
+
     This should be obvious, because `val` *ensures* that memoizaion occurs -
     see `Stream` scaladoc - but obvious things
     are often worth stating explicitly.
 
-2.  **Pass streams around via by-name parameters, consume them in tail-recursive functions.**
-    This ensures that references to the original stream 
-    do not remain on the call stack, effectively holding the entire 
-    stream.
+2.  **Consume streams in tail-recursive functions.**
 
-    In the below example, although the inner function `loop` is tail-recursive, 
-    the `sum` function that calls it will hold a reference to the head of 
-    the stream in its parameter:
+    Again, this is rather obvious - if the consuming function is recursive, 
+    but not tail-recursive, a reference to the original stream will remain 
+    on the call stack, effectively holding the entire stream in memory.
+    (Not to mention that it would likely throw a `StackOverflowError` 
+    when there is still plenty of memory available on the heap.)
 
-          def sum(xs: Stream[Int]): Int = {
-            @tailrec
-            def loop(acc: Int, xs: Stream[Int]): Int =
-              if (xs.isEmpty) acc else loop(acc+xs.head, xs.tail)
-            loop(0, xs)
-          }
-
-    but if you make `xs` a by-name parameter to `sum`, it will hold a *function*
-    that only gets computed right before the call to `loop`:
-
-          def sum(xs: => Stream[Int]): Int = {
-             .  .  .
-
-    and its result does not hold the entire stream.
-
-    You can also get rid of the outer function altogether using a default 
-    parameter value:
+    How the tail-recursive functions manage to avoid the OOM? 
+    Let's decompile an example:
 
           @tailrec
           def sum(xs: Stream[Int], z: Int = 0): Int = 
             if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
 
+    Here is what the decompiler produces:
 
+          public int sum(Stream<Object> xs, int z) {
+            for (;;) {
+              if (xs.isEmpty()) return z;
+              z += BoxesRunTime.unboxToInt(xs.head());
+              xs = (Stream)xs.tail();
+            }
+          }
 
-3.  **Corollary: When defining stream-consuming functions in traits,
-    wrap them in methods accepting streams as by-name parameters.**
+    Notice that the `xs` parameter is reused. It gets overwritten on each loop 
+    iteration, so it always holds a reference to the not-yet processed 
+    *remainder* of the original stream. 
+
+3.  **Pass streams around via by-name parameters.** (Make sure to read the [corollary](#corollary) below.)
+
+    Sometimes you need to pass a stream trough intermediate functions
+    before its consumption, but that would leave references to the stream 
+    on the call stack.
+
+    Typical example:
+
+          def sum(xs: Stream[Int]): Int = {
+            @tailrec
+            def loop(acc: Int, xs: Stream[Int]): Int =
+              if (xs.isEmpty) acc else loop(acc + xs.head, xs.tail)
+            loop(0, xs)
+          }
+
+    Although the inner function `loop` is tail-recursive, 
+    the `sum` function that calls it will hold a reference to the head of 
+    the stream in its parameter.
+
+    The advice commonly found on the Net is to pass the stream around 
+    in a "container", such as a single-element array or an `AtomicReference`, 
+    and nullify its contents in the consuming function. But this results 
+    in awkward-looking, impure code. I am not sure why the built-in language 
+    feature that achieves the same effect gets overlooked.
+
+    In the above example, if you make `xs` a *by-name* parameter to `sum`, 
+    what gets actually passed is a *function*, computed right before 
+    the call to `loop`, so its result does not hold the entire stream:
+
+          def sum(xs: => Stream[Int]): Int = {
+             .  .  .
+
+    <small>As you may have noticed when reading about Rule #2, you could also 
+    get rid of the outer function altogether using a default parameter value:</small>
+
+          @tailrec
+          def sum(xs: Stream[Int], z: Int = 0): Int = 
+            if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
+
+    <small>but that is not always possible.</small>
+
+    <span id="corollary">**Corollary: When defining stream-consuming functions in traits,
+    wrap them in functions accepting streams as by-name parameters.**</span>
 
     This one is subtle, and I would say the most unfortunate,
     because you have no control over the root cause of this restriction.
@@ -94,7 +131,7 @@ in the comments.
     a forwarder method generated by the compiler, even if the caller
     is a member of the same trait.
     The forwarder method will hold a reference to the entire stream,
-    that is, unless passed as a by-name parameter.
+    that is, unless the stream is passed as a by-name parameter.
 
     Example:
 
@@ -171,7 +208,7 @@ in the comments.
             case _ => println("No data to process")
           }
        
-    As of Scala 2.10, this code is exactly equivalent to the following:
+    As of Scala 2.10, this code is an *exact* equivalent of the following:
 
           val foo: Option[(A, Stream[A])] = Stream.#::.unapply(createStream)
           if (foo.isEmpty) println("No data to process")
@@ -203,6 +240,5 @@ in the comments.
     This also applies to methods `forall`, `exists`, `find`, `max`, `min`,
     `sum`, `product`, and possibly others.
 
-
-Now I have some news for you. Rules 2 to 5 are not entirely true.
+Now I have some news for you. Rules 2 to 5 are not quite true.
 Hop over to Part II to find out why.
