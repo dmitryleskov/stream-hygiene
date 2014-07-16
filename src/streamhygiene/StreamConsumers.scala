@@ -1,7 +1,6 @@
 /*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
+ * Originally (c) 2014 Dmitry Leskov, http://www.dmitryleskov.com
+ * Released into the public domain under the Unlicense, http://unlicense.org
  */
 
 package streamhygiene
