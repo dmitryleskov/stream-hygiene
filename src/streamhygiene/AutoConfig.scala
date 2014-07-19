@@ -5,7 +5,7 @@
 
 package streamhygiene
 
-class InputGenerator extends App {
+class AutoConfig extends App {
   val problemSize = 
     try {
       if (args.length == 0) {
@@ -14,6 +14,7 @@ class InputGenerator extends App {
           println("Heap size too big, set smaller heap using -Xmx")
           sys.exit(1)
         }
+        // (Very) conservatively estimate that a cons cell takes at least 16 bytes
         (heapSize.toInt / 16000000 + 1) * 1000000
       } 
       else if (args.length == 1) args(0).toInt
@@ -21,6 +22,5 @@ class InputGenerator extends App {
     } catch {
       case t: Throwable => println(t.getMessage); sys.exit(1)
     }
-  println("input is a stream of " + problemSize + " 1s")
-  def input = Stream.continually(1) take problemSize
+  println("Problem size: " + problemSize)
 }

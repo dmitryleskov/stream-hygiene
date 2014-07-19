@@ -7,7 +7,10 @@ package streamhygiene
 package part2
 import Test._
 
-object Part2 extends InputGenerator {
+object Part2 extends AutoConfig {
+  
+  def input = Stream.continually(1) take problemSize
+  
 /*
  * It looks like the imperative version of sum() does not leak memory
  */

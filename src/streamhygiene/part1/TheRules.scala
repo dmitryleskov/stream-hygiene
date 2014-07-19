@@ -11,9 +11,12 @@ package part1
 import scala.annotation.tailrec
 import Test._
 
-object TheRules extends InputGenerator with StreamConsumers {
+object TheRules extends AutoConfig with StreamConsumers {
+
+    def input = Stream.continually(1) take problemSize
+  
 /* 
- *  Rule #1. Define streams using `def` and never store them in `val`s.
+ *  Rule #1. Define streams using 'def' and never store them in 'val's.
  */
     test("input.length"){
       input.length
