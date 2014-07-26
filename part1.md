@@ -14,8 +14,11 @@ that enable the developers to use lazy evaluation if they really want to.
 
 In Scala, the language features are the `lazy` modifiers for `val`s
 and by-name function parameters. And in the standard library,
-amongs others, there is the class `Stream` (`scala.collection.immutable.Stream`),
-which is the subject of this series.
+amongs others, there is the class `Stream` (`scala.collection.immutable.Stream`).
+It was the subject of my recent studies, the results of which I share in this
+series.
+
+## Memoization ##
 
 Lazy evaluation often goes hand-in-hand with 
 [memoization](https://en.wikipedia.org/wiki/Memoization).
@@ -39,7 +42,7 @@ can be re-computed very cheaply (natural numbers), you better ensure
 that they do *not* get memoized.
 
 Below are the rules that will help you avoid memoization of Scala streams.
-I've compiled them from various sources and confirmed
+I've collected them from various sources and confirmed
 by compiliing and decompiling test programs.
 If you know of any other techniques or edge cases, please post 
 in the comments.
@@ -56,26 +59,32 @@ in the comments.
 
     Again, this is rather obvious - if the consuming function is recursive, 
     but not tail-recursive, a reference to the original stream will remain 
-    on the call stack, effectively holding the entire stream in memory.
-    (Not to mention that it would likely throw a `StackOverflowError` 
-    when there is still plenty of memory available on the heap.)
+    on the call stack until the recursion completes, 
+    effectively holding the entire stream in memory.
+    (Not to mention that such a function would likely throw a 
+    `StackOverflowError` when there is still plenty of memory 
+    available on the heap.)
 
     How the tail-recursive functions manage to avoid the OOM? 
     Let's decompile an example:
 
-          @tailrec
-          def sum(xs: Stream[Int], z: Int = 0): Int = 
-            if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
+    ~~~ {.scala}
+    @tailrec
+    def sum(xs: Stream[Int], z: Int = 0): Int = 
+      if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
+    ~~~
 
     Here is what the decompiler produces:
 
-          public int sum(Stream<Object> xs, int z) {
-            for (;;) {
-              if (xs.isEmpty()) return z;
-              z += BoxesRunTime.unboxToInt(xs.head());
-              xs = (Stream)xs.tail();
-            }
-          }
+    ~~~ {.java}
+    public int sum(Stream<Object> xs, int z) {
+      for (;;) {
+        if (xs.isEmpty()) return z;
+        z += BoxesRunTime.unboxToInt(xs.head());
+        xs = (Stream)xs.tail();
+      }
+    }
+    ~~~
 
     Notice that the `xs` parameter is reused. It gets overwritten on each loop 
     iteration, so it always holds a reference to the not-yet processed 
@@ -89,12 +98,14 @@ in the comments.
 
     Typical example:
 
-          def sum(xs: Stream[Int]): Int = {
-            @tailrec
-            def loop(acc: Int, xs: Stream[Int]): Int =
-              if (xs.isEmpty) acc else loop(acc + xs.head, xs.tail)
-            loop(0, xs)
-          }
+    ~~~ {.scala}
+    def sum(xs: Stream[Int]): Int = {
+      @tailrec
+      def loop(acc: Int, xs: Stream[Int]): Int =
+        if (xs.isEmpty) acc else loop(acc + xs.head, xs.tail)
+      loop(0, xs)
+    }
+    ~~~
 
     Although the inner function `loop` is tail-recursive, 
     the `sum` function that calls it will hold a reference to the head of 
@@ -110,15 +121,19 @@ in the comments.
     what gets actually passed is a *function*, computed right before 
     the call to `loop`, so its result does not hold the entire stream:
 
-          def sum(xs: => Stream[Int]): Int = {
-             .  .  .
+    ~~~ {.scala}
+    def sum(xs: => Stream[Int]): Int = {
+       .  .  .
+    ~~~
 
     <small>As you may have noticed when reading about Rule #2, you could also 
     get rid of the outer function altogether using a default parameter value:</small>
 
-          @tailrec
-          def sum(xs: Stream[Int], z: Int = 0): Int = 
-            if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
+    ~~~ {.scala}
+    @tailrec
+    def sum(xs: Stream[Int], z: Int = 0): Int = 
+      if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
+    ~~~
 
     <small>but that is not always possible.</small>
 
@@ -135,36 +150,40 @@ in the comments.
 
     Example:
 
-          trait StreamConsumers {
-            @tailrec
-            final def sum(xs: Stream[Int], z: Int = 0): Int = {
-              if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
-            }
-            def sumByName(xs: => Stream[Int]): Int = {
-              @tailrec def loop(acc: Int, xs: Stream[Int]): Int =
-                if (xs.isEmpty) acc else loop(acc+xs.head, xs.tail)
-              loop(0, xs)
-            }
+    ~~~ {.scala}
+    trait StreamConsumers {
+      @tailrec
+      final def sum(xs: Stream[Int], z: Int = 0): Int = {
+        if (xs.isEmpty) z else sum(xs.tail, z + xs.head)
+      }
+      def sumByName(xs: => Stream[Int]): Int = {
+        @tailrec def loop(acc: Int, xs: Stream[Int]): Int =
+          if (xs.isEmpty) acc else loop(acc+xs.head, xs.tail)
+        loop(0, xs)
+      }
 
-             .  .  .
+       .  .  .
 
-          object Main extends StreamConsumers {
-             .  .  .
+    object Main extends StreamConsumers {
+       .  .  .
+    ~~~
 
     And here are the forwarders in the decompiled code of `Main`:
 
-          public final class Main$
-            implements StreamConsumers
-          {
-            public static final  MODULE$;
-            
-            public final int sum(Stream<Object> xs, int z) {
-              return StreamConsumers.class.sum(this, xs, z);
-            }
-            public int sumByName(Function0<Stream<Object>> xs) {
-              return StreamConsumers.class.sumByName(this, xs);
-            }
-             .  .  .
+    ~~~ {.java}
+    public final class Main$
+      implements StreamConsumers
+    {
+      public static final  MODULE$;
+      
+      public final int sum(Stream<Object> xs, int z) {
+        return StreamConsumers.class.sum(this, xs, z);
+      }
+      public int sumByName(Function0<Stream<Object>> xs) {
+        return StreamConsumers.class.sumByName(this, xs);
+      }
+       .  .  .
+    ~~~
 
     <small>You may also notice that enclosing a tail-recursive function
     in a wrapper method relieves you from the need to 
@@ -175,44 +194,52 @@ in the comments.
     It is perfectly okay to use pattern matching *inside* a 
     tail-recursive function that consumes the stream:
 
-          def sumPatMatInner(xs: => Stream[Int]): Int = {
-            @tailrec
-            def loop(acc: Int, xs: Stream[Int]): Int =
-              xs match {
-                case Stream.Empty => acc
-                case y #:: ys => loop(acc + y, ys)
-              }
-            loop(0, xs)
-          }
+    ~~~ {.scala}
+    def sumPatMatInner(xs: => Stream[Int]): Int = {
+      @tailrec
+      def loop(acc: Int, xs: Stream[Int]): Int =
+        xs match {
+          case Stream.Empty => acc
+          case y #:: ys => loop(acc + y, ys)
+        }
+      loop(0, xs)
+    }
+    ~~~
 
     Hence a pattern matching addict might write something like this:
 
-          def sumPatMat(xs: => Stream[Int]): Int = {
-            @tailrec
-            def loop(acc: Int, xs: Stream[Int]): Int =
-              xs match {
-                case Stream.Empty => acc
-                case y #:: ys => loop(acc + y, ys)
-              }
-            xs match {
-              case Stream.Empty => 0
-              case x #:: Stream.Empty => x
-              case y #:: ys => loop(y, ys)
-            }
-          }
+    ~~~ {.scala}
+    def sumPatMat(xs: => Stream[Int]): Int = {
+      @tailrec
+      def loop(acc: Int, xs: Stream[Int]): Int =
+        xs match {
+          case Stream.Empty => acc
+          case y #:: ys => loop(acc + y, ys)
+        }
+      xs match {
+        case Stream.Empty => 0
+        case x #:: Stream.Empty => x
+        case y #:: ys => loop(y, ys)
+      }
+    }
+    ~~~
 
     Why can this lead to an OOM? Let's consider a simpler example:
     
-          createStream match {
-            case x #:: xs => consumeStream(x, xs)
-            case _ => println("No data to process")
-          }
+    ~~~ {.scala}
+    createStream match {
+      case x #:: xs => consumeStream(x, xs)
+      case _ => println("No data to process")
+    }
+    ~~~
        
     As of Scala 2.10, this code is an *exact* equivalent of the following:
 
-          val foo: Option[(A, Stream[A])] = Stream.#::.unapply(createStream)
-          if (foo.isEmpty) println("No data to process")
-          else {val x = foo.get._1; val xs = foo.get._2; consumeStream(x, xs)}
+    ~~~ {.scala}
+    val foo: Option[(A, Stream[A])] = Stream.#::.unapply(createStream)
+    if (foo.isEmpty) println("No data to process")
+    else {val x = foo.get._1; val xs = foo.get._2; consumeStream(x, xs)}
+    ~~~
       
     where `A` is the type of stream elements and `foo` is a unique name not 
     used anywhere else. 
@@ -233,12 +260,15 @@ in the comments.
 
     However, the method `/:` was left with the default implementation from 
     `scala.collections.TraversableOnce`, which simply calls `foldLeft`, 
-    effectively holding the reference to the receiver on its stack frame.
+    effectively holding the reference to the receiver on its stack frame:
 
-          def /:[B](z: B)(op: (B, A) => B): B = foldLeft(z)(op)
+    ~~~ {.scala}
+    def /:[B](z: B)(op: (B, A) => B): B = foldLeft(z)(op)
+    ~~~
 
     This also applies to methods `forall`, `exists`, `find`, `max`, `min`,
     `sum`, `product`, and possibly others.
 
-Now I have some news for you. Rules 2 to 5 are not quite true.
+Now I have some news for you. **Under certain circumstances, your program
+can get away with breaking Rules 2 to 5.**
 Hop over to Part II to find out why.
