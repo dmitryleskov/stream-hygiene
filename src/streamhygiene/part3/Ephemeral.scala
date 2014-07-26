@@ -8,8 +8,16 @@ package part3
 import scala.annotation.tailrec
 import scalaz._
 import scalaz.EphemeralStream._
+import Test._
 
 trait EphemeralStreamConsumers {
+  def traitSum(xs: EphemeralStream[Int]): Int = {
+    @tailrec
+    def loop(acc: Int, xs: EphemeralStream[Int]): Int =
+      if (xs.isEmpty) acc else loop(acc+xs.head(), xs.tail())
+    loop(0, xs)
+  }
+
   @tailrec
   final def traitSumTailRec(xs: EphemeralStream[Int], z: Int = 0): Int = {
     if (xs.isEmpty) z else traitSumTailRec(xs.tail(), z + xs.head())
@@ -24,125 +32,98 @@ trait EphemeralStreamConsumers {
     }
     res
   }
-  def traitSumByName(xs: => EphemeralStream[Int]): Int = {
-    @tailrec def loop(acc: Int, xs: EphemeralStream[Int]): Int =
-      if (xs.isEmpty) acc else loop(acc+xs.head(), xs.tail())
-    loop(0, xs)
-  }
 }
 
-object Ephemeral extends EphemeralStreamConsumers {
+object Ephemeral extends AutoConfig with EphemeralStreamConsumers {
+ /* 
+  *  No Rule #1: Storing an EphemeralStream in a 'val' is no problem.
+  */
   def ones: EphemeralStream[Int] = 1 ##:: ones
-   
-  def prefixSum(xs: => EphemeralStream[Int], n: Int): Int = {
-    @tailrec
-    def loop(acc: Int, xs: EphemeralStream[Int], n: Int): Int =
-      if (n == 0 || xs.isEmpty) acc else loop(acc+xs.head(), xs.tail(), n-1)
-    loop(0, xs, n)
-  }
-
-  def sum(xs: EphemeralStream[Int]): Int = {
-    @tailrec
-    def loop(acc: Int, xs: EphemeralStream[Int]): Int =
-      if (xs.isEmpty) acc else loop(acc+xs.head(), xs.tail())
-    loop(0, xs)
-  }
-
-  def sumPatMat(xs: EphemeralStream[Int]): Int = {
-    @tailrec
-    def loop(acc: Int, xs: EphemeralStream[Int]): Int =
-      xs match {
-        case x ##:: xs => loop(acc+x, xs)
-        case _ => acc
+  val input = ones take problemSize
+  test("input.length"){
+    input.length
+  }     
+ /* 
+  *  No Rule #2: Functions consuming EphemeralStreams do not need to be tail-recursive.
+  */
+  test("Imperative sum(input)"){
+    def sum(xs: EphemeralStream[Int]): Int = {
+      var scan = xs
+      var res = 0
+      while (!scan.isEmpty) {
+        res += scan.head()
+        scan = scan.tail()
       }
-    xs match {
-      case h ##:: t => loop(0, xs)
-      case _ => 0
+      res
     }
-  }
-  
-  def sumByName(xs: => EphemeralStream[Int]): Int = {
-    @tailrec
-    def loop(acc: Int, xs: EphemeralStream[Int]): Int =
-      if (xs.isEmpty) acc else loop(acc+xs.head(), xs.tail())
-    loop(0, xs)
-  }
-  
-  @tailrec
-  def sumTailRec(xs: EphemeralStream[Int], z: Int = 0): Int = 
-    if (xs.isEmpty) z else sumTailRec(xs.tail(), z + xs.head())
-
-  def sumImperative(xs: EphemeralStream[Int]): Int = {
-    var scan = xs
-    var res = 0
-    while (!scan.isEmpty) {
-      res += scan.head()
-      scan = scan.tail()
-    }
-    res
+    sum(input)
   }
 
-  def leaky(xs: EphemeralStream[Int]): Option[Double] = {
-    xs match {
-      case y ##:: ys => Some(y + sum(ys) / ys.length)
-      case _ => None
+ /* 
+  *  No Rule #3: No need to use by-name parameters in intermediate functions.
+  */
+  test("sum(input) holding reference to its parameter"){
+    def sum(xs: EphemeralStream[Int]): Int = {
+      @tailrec
+      def loop(acc: Int, xs: EphemeralStream[Int]): Int =
+        if (xs.isEmpty) acc else loop(acc+xs.head(), xs.tail())
+      loop(0, xs.tail()) + xs.head()
     }
+    sum(input)
+  }
+
+ /* 
+  *  No Rule #3 corollary: No need to use by-name parameters in 
+  *                        consuming functions defined in traits.
+  */
+  test("traitSum(input)"){traitSum(input)}
+  test("traitSumTailRec(input)"){traitSumTailRec(input)}
+  test("traitSumImperative(input)"){traitSumImperative(input)}
+  
+/*
+ *   No Rule #4: Pattern matching on EphemeralStreams is okay.
+ *               There is no equivalent of Stream.Empty, though.
+ */  
+  test("sumPatMat(input)"){
+    def sumPatMat(xs: EphemeralStream[Int]): Int = {
+      @tailrec
+      def loop(acc: Int, xs: EphemeralStream[Int]): Int =
+        xs match {
+          case x ##:: xs => loop(acc+x, xs)
+          case _ => acc
+        }
+      xs match {
+        case h ##:: t => loop(0, xs)
+        case _ => 0
+      }
+    }
+    sumPatMat(input)
   }
   
-  def test(desc: String)(f: => Any): Unit = {
-    print(desc)
-    try {
-      println(" = " + f)
+  test("average(input)"){
+    def average(xs: EphemeralStream[Int]): Option[Int] = {
+      xs match {
+        case y ##:: ys => Some(ys.sum / ys.length)
+        case _ => None
+      }
     }
-    catch {
-      case oom: OutOfMemoryError => println(" throws OutOfMemoryError") 
-      case t: Throwable => println(" throws some other exception" + t)
-    }
-  }
-  
-  def main(args: Array[String]): Unit = {
-    
-    def getData: EphemeralStream[Int] = ones
-    
-    def processData(s: EphemeralStream[Int]) = {}
+    average(input)
+  }  
 
-    getData match {
-      case x ##:: xs => processData(x ##:: xs)
-      case _ => println("no match")
-    }
-
-    getData match {
-//      case s @ (_ ##:: _) => processData(s)
-      case _ => println("no match")
-    }
-    
-    val foo: Option[(Int, EphemeralStream[Int])] = EphemeralStream.##::.unapply(getData)
-    if (foo.isEmpty) println("No data to process")
-    else {val x = foo.get._1; val xs = foo.get._2; processData(x ##:: xs)}
-    
-//    test("(ones drop 1000000).head"){(ones drop 1000000).head}
-//    test("(ones take 1000000).length"){(ones take 1000000).length}     
-    
-    def plus(x: => Int)(y: => Int) = x+y
-    test("(ones take 1000000).foldLeft(0)(plus)"){(ones take 1000000).foldLeft(0)(plus)}     
-//    test("(ones take 1000000).reduceLeft(_ + _)"){(ones take 1000000).reduceLeft(_ + _)}     
-    test("{var sum = 0; (ones take 1000000).foreach(x => sum += x); sum}"){
-      var sum = 0; (ones take 1000000).foreach(x => sum += x); sum
-    }     
-    test("(ones take 1000000).sum"){(ones take 1000000).sum}
-    test("(0 /: (ones take 1000000))(_ + _)"){(0 /: (ones take 1000000))(_ + _)}
-    test("ones take 1000000 forall (_ == 1)"){ones take 1000000 forall (_ == 1)}
-    test("ones take 1000000 exists (_ != 1)"){ones take 1000000 exists (_ != 1)}
-    test("ones take 1000000 find (_ != 1)"){ones take 1000000 find (_ != 1)}
-    test("sum(ones take 1000000)"){sum(ones take 1000000)}
-    test("sumPatMat(ones take 1000000)"){sumPatMat(ones take 1000000)}
-    test("sumByName(ones take 1000000)"){sumByName(ones take 1000000)}  
-    test("sumTailRec(ones take 1000000)"){sumTailRec(ones take 1000000)}  
-    test("sumImperative(ones take 1000000)"){sumImperative(ones take 1000000)}  
-    test("leaky(ones take 1000000)"){leaky(ones take 1000000)}  
-    test("traitSumTailRec(ones take 1000000)"){traitSumTailRec(ones take 1000000)}
-    test("traitSumImperative(ones take 1000000)"){traitSumImperative(ones take 1000000)}
-    test("traitSumByName(ones take 1000000)"){traitSumByName(ones take 1000000)}
-  }
+/*
+ *  No Rule $5. All eager stream-consuming methods work (if the stream is finite).
+ *              Not all Stream methods are available, however, and 
+ *              EphemeralStream's own methods need special treatment.
+ */  
+  def plus(x: => Int)(y: => Int) = x+y
+  test("input.foldLeft(0)(plus)"){input.foldLeft(0)(plus)}     
+  test("input.reduceLeft(_ + _)"){input.reduceLeft(_ + _)}     
+  test("{var sum = 0; input.foreach(x => sum += x); sum}"){
+    var sum = 0; input.foreach(x => sum += x); sum
+  }     
+  test("input.sum"){input.sum}
+  test("(0 /: (input))(_ + _)"){(0 /: (input))(_ + _)}
+  test("input forall (_ == 1)"){input forall (_ == 1)}
+  test("input exists (_ != 1)"){input exists (_ != 1)}
+  test("input find (_ != 1)"){input find (_ != 1)}
 }
-
