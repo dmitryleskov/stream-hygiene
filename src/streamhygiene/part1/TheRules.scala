@@ -110,7 +110,7 @@ object TheRules extends AutoConfig with StreamConsumers {
 /*
  *  whereas /:, forall, exists, find, sum and even last are not
  */    
-    test("(0 /: (input))(_ + _)"){(0 /: (input))(_ + _)}     // OOM
+    test("(0 /: input)(_ + _)"){(0 /: input)(_ + _)}         // OOM
     test("input forall (_ == 1)"){input forall (_ == 1)}     // OOM
     test("input exists (_ != 1)"){input exists (_ != 1)}     // OOM
     test("input find (_ != 1)"){input find (_ != 1)}         // OOM 
