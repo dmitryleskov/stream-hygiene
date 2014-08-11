@@ -6,64 +6,34 @@
 
 package streamhygiene
 
-trait MySummer {
-  this: MyStream =>
-  def traitTake(n: Int): MyStream =
-    if (n == 0 || isEmpty) MyEmptyStream else new MyCons(this.head, this.tail.take(n-1))
-  
-  def traitFoldLeft(z: Int)(f: (Int, Int) => Int): Int = {
-    var acc = z
-    var scan = this
-    while (!scan.isEmpty) {
-      acc = f(acc, scan.head)
-      scan = scan.tail
-    }
-    acc
-  }
-
-  def traitSum = traitFoldLeft(0)(_ + _)
-}
-
-abstract class MyStream extends MySummer {
+abstract class MyStream[+A] {
   def isEmpty: Boolean
-  def head: Int
-  def tail: MyStream
+  def head: A
+  def tail: MyStream[A]
 
-  def take(n: Int): MyStream =
+  def take(n: Int): MyStream[A] =
     if (n == 0 || isEmpty) MyEmptyStream else new MyCons(this.head, this.tail.take(n-1))
   
-  def foldLeft(z: Int)(f: (Int, Int) => Int): Int = {
+  def foldLeft[B](z: B)(f: (A, B) => B): B = {
     var acc = z
     var scan = this
     while (!scan.isEmpty) {
-      acc = f(acc, scan.head)
+      acc = f(scan.head, acc)
       scan = scan.tail
     }
     acc
   }
 
-  def sum = foldLeft(0)(_ + _)
 }
 
-class MyCons(h: Int, t: => MyStream) extends MyStream {
+class MyCons[+A](h: A, t: => MyStream[A]) extends MyStream[A] {
   def isEmpty = false
   def head = h
-  lazy val tail = t
-//  def tail = t
+  def tail = t
 }
 
-object MyEmptyStream extends MyStream {
+object MyEmptyStream extends MyStream[Nothing] {
   def isEmpty = true
   def head = throw new Error("Head of empty MyStream")
   def tail = throw new Error("Tail of empty MyStream")
 }
-
-//    println((fib take 1000000000).traitSum)  // Works
-//    println(myFSum(0, myFib take 1000000000))  // Works with def tail
-//    println(myTest)  // fails
-//    println(test)  // fails
-//    println(fsum(0, fib take 1000000000))  // OOM
-//    def ones1: MyStream = new MyCons(1, ones1)
-//    println((ones1 traitTake 1000000000).traitSum)  // Works!
-//    println((ones1 take 1000000000).sum)  // Works
-//    println(sumImperative(ones take 1000000000))  // Works
